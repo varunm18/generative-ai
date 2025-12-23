@@ -113,3 +113,40 @@ class AutoEncoder(Model):
             reconstructed = self.model(images)
 
         return images, reconstructed
+
+
+class VariationalAutoEncoder(Model):
+    def __init__(self, model, optimizer, batch_size, train_dataset, test_dataset, device=torch.device("cpu"), beta=1):
+        super().__init__(model, optimizer, batch_size, train_dataset, test_dataset, device)
+
+        self.beta = beta
+
+    def get_loss(self, images):
+        reconstructed, mu, logvar = self.model(images)
+        recon_loss = nn.functional.mse_loss(reconstructed, images, reduction="sum")
+
+        kl_loss = -0.5 * torch.sum(
+            1 + logvar - mu.pow(2) - logvar.exp()
+        )
+        return recon_loss + self.beta * kl_loss
+
+    def get_batch(self):
+        with torch.no_grad():
+            images, _ = next(iter(DataLoader(
+                self.test_loader.dataset,
+                batch_size=self.test_loader.batch_size,
+                shuffle=True
+            )))
+
+            images = images.to(self.device)
+
+            reconstructed, _, _ = self.model(images)
+
+        return images, reconstructed
+    
+    def sample(self, n=5):
+        with torch.no_grad():
+            z = torch.randn(n, self.model.latent_dim).to(self.device)
+            samples = self.model.decoder(z)
+        
+        return samples
