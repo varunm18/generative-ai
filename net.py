@@ -204,6 +204,7 @@ class GAN:
         latent_dim,
         save_dir,
         dataset,
+        view_size,
         device=torch.device("cpu"),
     ):
         self.device = device
@@ -217,12 +218,18 @@ class GAN:
         self.loader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
         self.latent_dim = latent_dim
-        self.fixed_noise = torch.randn(25, latent_dim).to(device)
+        self.fixed_noise = self.get_z(25)
+
+        self.view_size = view_size
+        self.cmap = 'gray' if view_size[1] == 1 else None
 
         self.save_dir = save_dir
         os.makedirs(save_dir, exist_ok=True)
 
         self.loss_fn = nn.BCELoss()
+
+    def get_z(self, batch_size):
+        return torch.randn(batch_size, self.latent_dim).to(self.device)
 
     def save_generated_images(self, epoch):
         self.generator.eval()
@@ -231,14 +238,14 @@ class GAN:
 
             # [-1,1] from tanh -> [0,1]
             gen_imgs = (gen_imgs + 1) / 2
-            gen_imgs = gen_imgs.view(-1, 1, 28, 28)
+            gen_imgs = gen_imgs.view(*self.view_size)
 
             grid = make_grid(gen_imgs, nrow=5)
 
         grid = grid.permute(1, 2, 0).cpu().numpy()
 
         plt.figure(figsize=(5, 5))
-        plt.imshow(grid, cmap="gray")
+        plt.imshow(grid, cmap=self.cmap)
         plt.axis("off")
 
         plt.text(
@@ -266,7 +273,7 @@ class GAN:
                 valid = torch.ones(real_imgs.size(0), 1).to(self.device)
                 fake = torch.zeros(real_imgs.size(0), 1).to(self.device)
 
-                z = torch.randn(real_imgs.size(0), self.latent_dim).to(self.device)
+                z = self.get_z(real_imgs.size(0))
                 gen_imgs = self.generator(z)
 
                 g_loss = self.loss_fn(self.discriminator(gen_imgs), valid)
@@ -296,23 +303,33 @@ class GAN:
 
         return epoch_g_loss, epoch_d_loss
 
-    def plot_samples(self, n=5):
+    def plot_samples(self, dataset_name, n=5):
         self.generator.eval()
 
         with torch.no_grad():
-            z = torch.randn(n * n, self.latent_dim).to(self.device)
+            z = self.get_z(n * n)
             samples = self.generator(z)
 
-        samples = samples.view(-1, 28, 28).cpu().detach()
+            # [-1,1] from tanh -> [0,1]
+            samples = (samples + 1) / 2
+            samples = samples.view(*self.view_size)
+            
+            grid = make_grid(samples, nrow=5)
+        
+        grid = grid.permute(1, 2, 0).cpu().numpy()
 
         fig = plt.figure(figsize=(n, n))
+        plt.imshow(grid, cmap=self.cmap)
+        plt.axis("off")
 
-        for i in range(n * n):
-            plt.subplot(n, n, i + 1)
-            plt.imshow(samples[i], cmap="gray")
-            plt.axis("off")
-
-        plt.suptitle(f"MNIST GAN Samples ({n}x{n})")
+        plt.suptitle(f"{dataset_name} GAN Samples ({n}x{n})")
         plt.tight_layout()
 
         return fig
+
+class DCGAN(GAN):
+    def __init__(self, discriminator, generator, d_optimizer, g_optimizer, batch_size, latent_dim, save_dir, dataset, view_size, device=torch.device("cpu")):
+        super().__init__(discriminator, generator, d_optimizer, g_optimizer, batch_size, latent_dim, save_dir, dataset, view_size, device)
+
+    def get_z(self, batch_size):
+        return torch.randn(batch_size, self.latent_dim, 1, 1).to(self.device)
